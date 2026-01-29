@@ -10,6 +10,9 @@ import time
 import threading
 from collections import deque
 import sys
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from PIL import Image, ImageTk
 
 class EmergencyDetector:
     def __init__(self):
@@ -293,32 +296,224 @@ class EmergencyDetector:
             cv2.destroyAllWindows()
             print("System stopped")
 
+class EmergencyDetectorGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Emergency Detection System")
+        self.root.geometry("900x700")
+        self.root.configure(bg="#1a1a1a")
+        
+        self.detector = EmergencyDetector()
+        self.running = False
+        self.video_source = None
+        
+        # Header
+        header = tk.Frame(root, bg="#0d47a1", height=60)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        
+        title = tk.Label(header, text="🚨 Emergency Detection System", 
+                        font=("Arial", 20, "bold"), 
+                        bg="#0d47a1", fg="white")
+        title.pack(pady=15)
+        
+        # Control panel
+        control_frame = tk.Frame(root, bg="#2b2b2b", pady=10)
+        control_frame.pack(fill=tk.X)
+        
+        # Buttons
+        btn_style = {"font": ("Arial", 11), "width": 15, "height": 2}
+        
+        self.btn_webcam = tk.Button(control_frame, text="📷 Start Webcam", 
+                                    command=self.start_webcam, 
+                                    bg="#4CAF50", fg="white", **btn_style)
+        self.btn_webcam.pack(side=tk.LEFT, padx=10)
+        
+        self.btn_video = tk.Button(control_frame, text="🎥 Load Video", 
+                                   command=self.load_video, 
+                                   bg="#2196F3", fg="white", **btn_style)
+        self.btn_video.pack(side=tk.LEFT, padx=10)
+        
+        self.btn_stop = tk.Button(control_frame, text="⏹ Stop", 
+                                  command=self.stop, 
+                                  bg="#f44336", fg="white", 
+                                  state=tk.DISABLED, **btn_style)
+        self.btn_stop.pack(side=tk.LEFT, padx=10)
+        
+        self.btn_screenshot = tk.Button(control_frame, text="📸 Screenshot", 
+                                        command=self.take_screenshot, 
+                                        bg="#FF9800", fg="white", 
+                                        state=tk.DISABLED, **btn_style)
+        self.btn_screenshot.pack(side=tk.LEFT, padx=10)
+        
+        # Video display area
+        video_container = tk.Frame(root, bg="#000000", relief=tk.SUNKEN, bd=3)
+        video_container.pack(expand=True, fill=tk.BOTH, padx=15, pady=10)
+        
+        self.video_label = tk.Label(video_container, bg="black", 
+                                     text="No video source\nClick 'Start Webcam' or 'Load Video'",
+                                     font=("Arial", 14), fg="gray")
+        self.video_label.pack(expand=True, fill=tk.BOTH)
+        
+        # Alert panel (starts hidden)
+        self.alert_frame = tk.Frame(root, bg="#4CAF50", height=60)
+        self.alert_frame.pack(fill=tk.X)
+        self.alert_frame.pack_propagate(False)
+        
+        self.alert_label = tk.Label(self.alert_frame, 
+                                     text="✓ System Normal - Monitoring", 
+                                     font=("Arial", 16, "bold"), 
+                                     bg="#4CAF50", fg="white")
+        self.alert_label.pack(expand=True)
+        
+        # Status bar
+        status_frame = tk.Frame(root, bg="#424242")
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        self.status_var = tk.StringVar(value="Ready • No source active")
+        status_label = tk.Label(status_frame, textvariable=self.status_var, 
+                               bg="#424242", fg="white", 
+                               font=("Arial", 10), anchor=tk.W, padx=10)
+        status_label.pack(fill=tk.X, side=tk.LEFT, expand=True)
+        
+        self.fps_var = tk.StringVar(value="FPS: 0")
+        fps_label = tk.Label(status_frame, textvariable=self.fps_var, 
+                            bg="#424242", fg="white", 
+                            font=("Arial", 10), anchor=tk.E, padx=10)
+        fps_label.pack(side=tk.RIGHT)
+        
+        # FPS calculation
+        self.frame_count = 0
+        self.fps_start_time = time.time()
+        self.current_fps = 0
+        
+        # Handle window close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+    
+    def start_webcam(self):
+        if self.detector.initialize_camera(0):
+            self.running = True
+            self.video_source = "Webcam"
+            self.status_var.set("Active • Webcam")
+            self.btn_webcam.config(state=tk.DISABLED)
+            self.btn_video.config(state=tk.DISABLED)
+            self.btn_stop.config(state=tk.NORMAL)
+            self.btn_screenshot.config(state=tk.NORMAL)
+            self.update_frame()
+        else:
+            messagebox.showerror("Error", "Could not open webcam")
+    
+    def load_video(self):
+        filepath = filedialog.askopenfilename(
+            title="Select Video File",
+            filetypes=[
+                ("Video files", "*.mp4 *.avi *.mov *.mkv *.flv"),
+                ("All files", "*.*")
+            ]
+        )
+        if filepath:
+            if self.detector.initialize_camera(filepath):
+                self.running = True
+                self.video_source = filepath.split('/')[-1]
+                self.status_var.set(f"Active • {self.video_source}")
+                self.btn_webcam.config(state=tk.DISABLED)
+                self.btn_video.config(state=tk.DISABLED)
+                self.btn_stop.config(state=tk.NORMAL)
+                self.btn_screenshot.config(state=tk.NORMAL)
+                self.update_frame()
+            else:
+                messagebox.showerror("Error", f"Could not open video:\n{filepath}")
+    
+    def stop(self):
+        self.running = False
+        if self.detector.cap:
+            self.detector.cap.release()
+        self.detector.prev_frame = None
+        self.detector.motion_history.clear()
+        
+        self.status_var.set("Ready • No source active")
+        self.video_label.config(image='', 
+                               text="No video source\nClick 'Start Webcam' or 'Load Video'")
+        self.btn_webcam.config(state=tk.NORMAL)
+        self.btn_video.config(state=tk.NORMAL)
+        self.btn_stop.config(state=tk.DISABLED)
+        self.btn_screenshot.config(state=tk.DISABLED)
+        self.reset_alert()
+    
+    def take_screenshot(self):
+        if hasattr(self, 'current_frame') and self.current_frame is not None:
+            filename = f"screenshot_{int(time.time())}.jpg"
+            cv2.imwrite(filename, self.current_frame)
+            messagebox.showinfo("Screenshot Saved", f"Saved as:\n{filename}")
+    
+    def update_frame(self):
+        if not self.running:
+            return
+        
+        ret, frame = self.detector.cap.read()
+        if not ret:
+            self.stop()
+            messagebox.showinfo("Video Ended", "Video playback completed")
+            return
+        
+        # Resize to fixed resolution
+        frame = cv2.resize(frame, (640, 480))
+        self.current_frame = frame.copy()
+        
+        # Process frame with detector
+        processed = self.detector.process_frame(frame)
+        
+        # Update alert status
+        if self.detector.alert_active:
+            self.alert_frame.config(bg="#f44336")
+            alert_text = f"⚠️ ALERT: {self.detector.alert_type} DETECTED ⚠️"
+            self.alert_label.config(bg="#f44336", text=alert_text)
+        else:
+            self.alert_frame.config(bg="#4CAF50")
+            self.alert_label.config(bg="#4CAF50", 
+                                    text="✓ System Normal - Monitoring")
+        
+        # Calculate FPS
+        self.frame_count += 1
+        if self.frame_count % 30 == 0:
+            elapsed = time.time() - self.fps_start_time
+            self.current_fps = 30 / elapsed if elapsed > 0 else 0
+            self.fps_var.set(f"FPS: {self.current_fps:.1f}")
+            self.fps_start_time = time.time()
+        
+        # Convert for Tkinter display
+        cv_img = cv2.cvtColor(processed, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(cv_img)
+        imgtk = ImageTk.PhotoImage(image=img)
+        
+        self.video_label.imgtk = imgtk
+        self.video_label.configure(image=imgtk, text='')
+        
+        # Schedule next frame (30 FPS = ~33ms delay)
+        self.root.after(33, self.update_frame)
+    
+    def reset_alert(self):
+        self.alert_frame.config(bg="#4CAF50")
+        self.alert_label.config(bg="#4CAF50", 
+                                text="✓ System Normal - Monitoring")
+        self.detector.alert_active = False
+        self.detector.alert_type = None
+    
+    def on_closing(self):
+        if self.running:
+            if messagebox.askokcancel("Quit", "Detection is active. Are you sure you want to quit?"):
+                self.stop()
+                self.root.destroy()
+        else:
+            self.root.destroy()
+
+
 def main():
-    """Main function"""
-    print("="*60)
-    print("Emergency Detection System for Public Safety")
-    print("="*60)
-    print("\nThis system detects:")
-    print("  • Fire and explosions (color-based)")
-    print("  • Intense motion (possible panic or blast)")
-    print("  • Crowd panic (people running)")
-    print("\nOptions:")
-    print("  1. Use webcam (default)")
-    print("  2. Use video file")
-    print("="*60)
-    
-    choice = input("\nEnter choice (1 or 2): ").strip()
-    
-    detector = EmergencyDetector()
-    
-    if choice == "2":
-        video_path = input("Enter video file path: ").strip()
-        # Remove quotes if user included them
-        video_path = video_path.strip("'\"")
-        print(f"Attempting to open: {video_path}")
-        detector.run(video_path)
-    else:
-        detector.run(0)  # Default webcam
+    """Main function with GUI"""
+    root = tk.Tk()
+    app = EmergencyDetectorGUI(root)
+    root.mainloop()
+
 
 if __name__ == "__main__":
     main()
